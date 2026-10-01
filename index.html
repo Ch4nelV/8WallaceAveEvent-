@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>You are invited</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  .stage { position: fixed; inset: 0; cursor: pointer; overflow: hidden; background: #000; }
+  .stage.done { cursor: default; }
+  video {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: contain; opacity: 0; transition: opacity .6s ease;
+  }
+  video.on { opacity: 1; }
+  /* Blurred, enlarged copy of the current video fills the space around the sharp one */
+  #bg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    filter: blur(36px) brightness(.75) saturate(1.1); transform: scale(1.25);
+  }
+  .hint {
+    position: absolute; left: 50%; bottom: calc(8% + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%); color: #e9dcc0;
+    font: 300 1rem/1 Georgia, "Times New Roman", serif; letter-spacing: .28em;
+    text-shadow: 0 1px 12px rgba(0,0,0,.7); animation: pulse 2.6s ease-in-out infinite;
+    transition: opacity .4s ease; pointer-events: none; white-space: nowrap;
+  }
+  .hint.hide { opacity: 0; animation: none; }
+  .sound {
+    position: absolute; top: calc(18px + env(safe-area-inset-top, 0px)); right: 18px;
+    width: 44px; height: 44px; border-radius: 50%; border: 1px solid rgba(233,220,192,.5);
+    background: rgba(0,0,0,.35); color: #e9dcc0; font: 1rem Georgia, serif; cursor: pointer;
+    opacity: 0; pointer-events: none; transition: opacity .6s ease;
+  }
+  .sound.show { opacity: 1; pointer-events: auto; }
+  .sound:focus-visible { outline: 2px solid #e9dcc0; outline-offset: 3px; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .hint { animation: none; } video { transition: none; } }
+</style>
+</head>
+<body>
+<main class="stage" id="stage" role="button" tabindex="0" aria-label="Open the doors">
+  <canvas id="bg" width="320" height="180" aria-hidden="true"></canvas>
+  <video id="closed" class="on" src="videos/Doors_closed.mp4" muted loop autoplay playsinline preload="auto"></video>
+  <video id="opening" src="videos/Doors_opening.mp4" muted playsinline preload="auto"></video>
+  <video id="invite" src="videos/Invite_loop.mp4" muted loop playsinline preload="auto"></video>
+  <p class="hint" id="hint">Tap to enter</p>
+  <button class="sound" id="sound" aria-label="Mute sound" title="Sound on/off">&#9835;</button>
+  <audio id="bgm" src="audio/Nature-sounds.mp3" loop preload="auto"></audio>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  const stage = $('stage'), closed = $('closed'), opening = $('opening'),
+        invite = $('invite'), hint = $('hint');
+  const bgm = $('bgm'), soundBtn = $('sound');
+  let started = false;
+
+  // Audio starts on the first tap (browsers block sound before a user gesture)
+  function startAudio() {
+    bgm.volume = 0;
+    bgm.play().then(() => {
+      let v = 0;
+      const fade = setInterval(() => {
+        v = Math.min(v + 0.05, 0.6);
+        bgm.volume = v;
+        if (v >= 0.6) clearInterval(fade);
+      }, 100);
+    }).catch(() => {});
+    soundBtn.classList.add('show');
+  }
+
+  soundBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    bgm.muted = !bgm.muted;
+    soundBtn.style.opacity = bgm.muted ? '.5' : '';
+    soundBtn.setAttribute('aria-label', bgm.muted ? 'Unmute sound' : 'Mute sound');
+  });
+
+  // Blurred backdrop: paint the current video (cropped to fill) onto a small canvas
+  const bg = $('bg'), ctx = bg.getContext('2d');
+  let current = closed;
+  function paintBg() {
+    const v = current, w = bg.width, h = bg.height;
+    if (v.videoWidth) {
+      const nh = Math.round(w * innerHeight / innerWidth) || h;
+      if (bg.height !== nh) bg.height = nh;
+      const r = Math.max(w / v.videoWidth, bg.height / v.videoHeight);
+      const dw = v.videoWidth * r, dh = v.videoHeight * r;
+      ctx.drawImage(v, (w - dw) / 2, (bg.height - dh) / 2, dw, dh);
+    }
+    requestAnimationFrame(paintBg);
+  }
+  paintBg();
+
+  function show(v) {
+    current = v;
+    [closed, opening, invite].forEach(el => el.classList.toggle('on', el === v));
+  }
+
+  function enter() {
+    if (started) return;
+    started = true;
+    hint.classList.add('hide');
+    startAudio();
+    opening.currentTime = 0;
+    opening.play().then(() => show(opening)).catch(toInvite);
+    // Once the doors video is on screen, stop the closed loop.
+    opening.addEventListener('playing', () => setTimeout(() => closed.pause(), 700), { once: true });
+  }
+
+  function toInvite() {
+    invite.currentTime = 0;
+    invite.play().finally(() => {
+      show(invite);
+      stage.classList.add('done');
+      stage.removeAttribute('role');
+      stage.removeAttribute('tabindex');
+    });
+  }
+
+  opening.addEventListener('ended', toInvite);
+  stage.addEventListener('click', enter);
+  stage.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); enter(); }
+  });
+</script>
+</body>
+</html>
